@@ -116,13 +116,14 @@ if (app.Environment.IsDevelopment())
 
 app.UseMiddleware<DevBeDev.API.Middlewares.ExceptionHandlingMiddleware>();
 
+app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseCors("AllowAll");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
-app.MapGet("/", () => Results.Ok(new
+app.MapGet("/status", () => Results.Ok(new
 {
     status = "online",
     servico = "DevBeDev.API",

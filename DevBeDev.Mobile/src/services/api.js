@@ -4,7 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 
 export const API_HOST = 'https://onrender.com';
 
-export const API_BASE_URL = 'https://onrender.com';
+export const API_BASE_URL = 'https://onrender.com/api';
 
 const TOKEN_KEY = 'jwt_token';
 

@@ -122,6 +122,13 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
+app.MapGet("/", () => Results.Ok(new
+{
+    status = "online",
+    servico = "DevBeDev.API",
+    timestamp = DateTime.UtcNow
+}));
+
 using (var scope = app.Services.CreateScope())
 {
     try

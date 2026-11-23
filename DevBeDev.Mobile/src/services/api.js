@@ -2,9 +2,9 @@ import { Platform } from 'react-native';
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 
-export const API_HOST = 'https://devbedev-api.onrender.com';
+export const API_HOST = 'https://onrender.com';
 
-export const API_BASE_URL = `${API_HOST}/api`;
+export const API_BASE_URL = 'https://onrender.com';
 
 const TOKEN_KEY = 'jwt_token';
 

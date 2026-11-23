@@ -62,7 +62,7 @@ export default function FeedScreen({ onLogout, userRole, userId, onVerPerfilDev 
         <TouchableOpacity onPress={handleLogoPress} activeOpacity={0.8}>
           <View style={styles.logoBadge}>
             <Image
-              source={require('../../imagemlogo.png')}
+              source={require('../../assets/imagemlogo.png')}
               style={styles.logoImage}
               resizeMode="contain"
             />

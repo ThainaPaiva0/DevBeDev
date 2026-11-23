@@ -1,0 +1,19 @@
+# Pastas de build e dependências do .NET
+**/bin/
+**/obj/
+.vs/
+
+# Pastas de dependências e cache do React Native / Expo
+**/node_modules/
+**/.expo/
+**/dist/
+
+# Arquivos temporários e logs
+repomix-*
+*.log
+.DS_Store
+Thumbs.db
+
+# Arquivos de mídia enviados nos testes locais (opcional, mantém a pasta limpa)
+DevBeDev.API/wwwroot/uploads/*
+!DevBeDev.API/wwwroot/uploads/.gitkeep

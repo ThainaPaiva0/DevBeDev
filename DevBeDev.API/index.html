@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevBeDev - Feed de Projetos</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="logo" id="logo-home" style="cursor: pointer;">
+            <img src="imagemlogo.png" alt="DevBeDev" class="logo-img">
+        </div>
+
+        <div class="search-bar">
+            <input type="text" id="input-busca" placeholder="Buscar projetos, techs ou devs...">
+            <button id="btn-buscar">Pesquisar</button>
+        </div>
+
+        <div class="nav-links">
+            <a href="#" id="link-favoritos" hidden>Meus Favoritos</a>
+            <a href="#" id="link-meus-projetos" hidden>Meus Projetos</a>
+            <a href="#" id="link-mensagens" hidden>Mensagens</a>
+            <a href="#" id="link-perfil" hidden>Meu Perfil</a>
+            <a href="#" id="link-publicar" hidden>Publicar Projeto</a>
+            <a href="#" id="link-solicitar-upgrade" hidden>Solicitar Upgrade</a>
+            <a href="#" id="link-admin-painel" hidden>Painel Admin</a>
+            <a href="#" id="link-login">Entrar</a>
+            <a href="#" id="link-registro">Cadastrar</a>
+            <a href="#" id="link-logout" hidden>Sair</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="feed-header">
+            <h2>Feed de Projetos</h2>
+        </div>
+        <div id="feed-projetos" class="grid-projetos">
+            <!-- Projetos injetados dinamicamente via app.js -->
+        </div>
+    </div>
+
+    <!-- Template de Projeto -->
+    <template id="projeto-template">
+        <div class="projeto-card">
+            <div class="projeto-card-header">
+                <h3 class="projeto-titulo" style="color: #614DE6;">Título do Projeto</h3>
+                <div class="projeto-autor-box">
+                    <img class="autor-avatar" alt="Foto do autor">
+                    <a href="#" class="projeto-autor">@autor</a>
+                </div>
+            </div>
+            <p class="projeto-descricao">Descrição detalhada do projeto...</p>
+
+            <div class="projeto-midia-container">
+                <div class="carousel-container" hidden>
+                    <div class="carousel-track"></div>
+                    <button class="carousel-btn carousel-btn-prev" type="button">&#10094;</button>
+                    <button class="carousel-btn carousel-btn-next" type="button">&#10095;</button>
+                    <div class="carousel-dots"></div>
+                </div>
+            </div>
+
+            <div class="projeto-tecnologias"></div>
+
+            <div class="projeto-footer">
+                <button class="btn-upvote">▲ <span class="upvote-count">0</span></button>
+                <button class="btn-favoritar" hidden>★ Favoritar</button>
+                <a href="#" target="_blank" class="btn-link">Ver Repositório</a>
+                <button class="btn-deletar" hidden>🗑 Excluir</button>
+            </div>
+
+            <!-- Seção de Comentários / Fórum -->
+            <div class="forum-secao">
+                <h4>Comentários</h4>
+                <ul class="comentarios-lista"></ul>
+                <div class="form-comentario" hidden>
+                    <input type="text" class="input-comentario" placeholder="Escreva um comentário...">
+                    <button class="btn-primary btn-comentar">Enviar</button>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- Modal de Login -->
+    <div id="modal-login" class="modal" hidden>
+        <div class="modal-content">
+            <button class="modal-fechar" data-fechar="modal-login">&times;</button>
+            <h2>Entrar no DevBeDev</h2>
+            <form id="form-login">
+                <div class="form-group">
+                    <label for="login-email">E-mail</label>
+                    <input type="email" id="login-email" required>
+                </div>
+                <div class="form-group">
+                    <label for="login-senha">Senha</label>
+                    <div class="senha-wrapper">
+                        <input type="password" id="login-senha" required>
+                        <button type="button" class="btn-toggle-senha" data-target="login-senha" aria-label="Mostrar ou ocultar senha" title="Mostrar/Ocultar senha">👁</button>
+                    </div>
+                </div>
+                <p id="login-erro" class="form-erro" hidden></p>
+                <button type="submit" class="btn-primary btn-bloco">Entrar</button>
+                <p class="modal-troca">Ainda não tem conta? <a href="#" id="login-para-registro">Cadastre-se</a></p>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal de Registro -->
+    <div id="modal-registro" class="modal" hidden>
+        <div class="modal-content">
+            <button class="modal-fechar" data-fechar="modal-registro">&times;</button>
+            <h2>Criar Conta</h2>
+            <form id="form-registro">
+                <div class="form-group">
+                    <label for="registro-nome">Nome Completo</label>
+                    <input type="text" id="registro-nome" required>
+                </div>
+                <div class="form-group">
+                    <label for="registro-email">E-mail</label>
+                    <input type="email" id="registro-email" required>
+                </div>
+                <div class="form-group">
+                    <label for="registro-senha">Senha</label>
+                    <div class="senha-wrapper">
+                        <input type="password" id="registro-senha" required>
+                        <button type="button" class="btn-toggle-senha" data-target="registro-senha" aria-label="Mostrar ou ocultar senha" title="Mostrar/Ocultar senha">👁</button>
+                    </div>
+                </div>
+                <p id="registro-erro" class="form-erro" hidden></p>
+                <button type="submit" class="btn-primary btn-bloco">Cadastrar</button>
+                <p class="modal-troca">Já possui uma conta? <a href="#" id="registro-para-login">Faça login</a></p>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal de Publicar Projeto -->
+    <div id="modal-publicar" class="modal" hidden>
+        <div class="modal-content" style="max-width: 540px;">
+            <button class="modal-fechar" data-fechar="modal-publicar">&times;</button>
+            <h2>Publicar Novo Projeto</h2>
+            <form id="form-publicar" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label for="publicar-titulo">Título</label>
+                    <input type="text" id="publicar-titulo" required>
+                </div>
+                <div class="form-group">
+                    <label for="publicar-descricao">Descrição</label>
+                    <textarea id="publicar-descricao" rows="4" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="publicar-link">Link do Repositório</label>
+                    <input type="url" id="publicar-link" required>
+                </div>
+                <div class="form-group">
+                    <label for="publicar-file-foto">Upload de Fotos (Até 5 fotos)</label>
+                    <input type="file" id="publicar-file-foto" name="fotos" accept="image/*" multiple>
+                    <div id="publicar-fotos-preview" class="media-preview-grid"></div>
+                </div>
+                <div class="form-group">
+                    <label for="publicar-video">Upload de Vídeo Demo (Opcional)</label>
+                    <input type="file" id="publicar-video" name="video" accept="video/*">
+                    <div id="publicar-video-preview" class="media-preview-grid"></div>
+                </div>
+                <p id="publicar-erro" class="form-erro" hidden></p>
+                <button type="submit" class="btn-primary btn-bloco">Enviar para Moderação</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal de Editar Perfil -->
+    <div id="modal-perfil" class="modal" hidden>
+        <div class="modal-content">
+            <button class="modal-fechar" data-fechar="modal-perfil">&times;</button>
+            <h2>Gerenciar Perfil</h2>
+
+            <div id="perfil-alertas-recusa" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px;"></div>
+
+            <form id="form-perfil">
+                <div class="perfil-foto-box">
+                    <img id="perfil-foto-preview" class="perfil-foto-atual" alt="Foto de perfil">
+                </div>
+                <div class="form-group">
+                    <label for="perfil-foto">Foto de Perfil</label>
+                    <input type="file" id="perfil-foto" accept="image/*">
+                    <div id="perfil-foto-selecionada-box" class="media-preview-grid"></div>
+                </div>
+                <div class="form-group">
+                    <label for="perfil-nome">Nome</label>
+                    <input type="text" id="perfil-nome" required>
+                </div>
+                <div id="perfil-campos-dev" hidden>
+                    <div class="form-group">
+                        <label for="perfil-bio">Bio</label>
+                        <textarea id="perfil-bio" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="perfil-github">Link GitHub</label>
+                        <input type="url" id="perfil-github">
+                    </div>
+                </div>
+                <div id="perfil-campos-recrutador" hidden>
+                    <div class="form-group">
+                        <label for="perfil-cnpj">CNPJ da Empresa</label>
+                        <input type="text" id="perfil-cnpj">
+                    </div>
+                    <div class="form-group">
+                        <label for="perfil-linkedin">Link LinkedIn</label>
+                        <input type="url" id="perfil-linkedin">
+                    </div>
+                </div>
+                <p id="perfil-erro" class="form-erro" hidden></p>
+                <button type="submit" class="btn-primary btn-bloco">Salvar Alterações</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal de Recorte / Enquadramento de Imagem com Canvas -->
+    <div id="modal-recorte-imagem" class="modal" hidden style="z-index: 160;">
+        <div class="modal-content" style="max-width: 520px;">
+            <button class="modal-fechar" data-fechar="modal-recorte-imagem">&times;</button>
+            <h2 id="recorte-modal-titulo">Ajustar / Recortar Imagem</h2>
+            <p class="recorte-instrucao">Arraste a imagem para enquadrar e ajuste o zoom antes de confirmar.</p>
+
+            <div class="recorte-canvas-wrapper">
+                <canvas id="recorte-canvas" width="320" height="320"></canvas>
+            </div>
+
+            <div class="form-group" style="margin-top: 1rem;">
+                <label for="recorte-zoom">Zoom (<span id="recorte-zoom-valor">100%</span>)</label>
+                <input type="range" id="recorte-zoom" min="1" max="3" step="0.05" value="1">
+            </div>
+
+            <div class="recorte-acoes">
+                <button type="button" class="btn-secundario" id="btn-recorte-resetar">Centralizar</button>
+                <button type="button" class="btn-secundario" id="btn-recorte-cancelar">Cancelar</button>
+                <button type="button" class="btn-primary" id="btn-recorte-confirmar">Aplicar Recorte</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Perfil Público do Dev -->
+    <div id="modal-perfil-dev" class="modal" hidden>
+        <div class="modal-content" style="max-width: 600px;">
+            <button class="modal-fechar" data-fechar="modal-perfil-dev">&times;</button>
+            <div class="perfil-dev-cabecalho">
+                <img id="perfil-dev-foto" class="perfil-foto-atual" alt="Foto do desenvolvedor">
+                <h2 id="perfil-dev-nome"></h2>
+                <p id="perfil-dev-bio" class="perfil-dev-bio"></p>
+                <a id="perfil-dev-github" href="#" target="_blank" rel="noopener" hidden>GitHub</a>
+            </div>
+            <h3 class="perfil-dev-subtitulo">Projetos publicados</h3>
+            <div id="perfil-dev-projetos"></div>
+        </div>
+    </div>
+
+    <!-- Modal Meus Projetos (Dev) -->
+    <div id="modal-meus-projetos" class="modal" hidden>
+        <div class="modal-content" style="max-width: 680px;">
+            <button class="modal-fechar" data-fechar="modal-meus-projetos">&times;</button>
+            <h2>Meus Projetos</h2>
+            <div id="lista-meus-projetos"></div>
+        </div>
+    </div>
+
+    <!-- Modal Mensagens Diretas (Recrutador, Dev e Admin) -->
+    <div id="modal-mensagens" class="modal" hidden>
+        <div class="modal-content" style="max-width: 780px;">
+            <button class="modal-fechar" data-fechar="modal-mensagens">&times;</button>
+            <h2>Mensagens Diretas</h2>
+            <div class="chat-layout">
+                <aside class="chat-sidebar">
+                    <div class="chat-sidebar-header">
+                        <input type="text" id="chat-busca-contato" placeholder="Buscar Dev, Recrutador ou Admin...">
+                    </div>
+                    <div class="chat-secao-titulo">Conversas Recentes</div>
+                    <div id="chat-lista-conversas" class="chat-contatos-lista"></div>
+                    <div class="chat-secao-titulo">Contatos Elegíveis</div>
+                    <div id="chat-lista-contatos" class="chat-contatos-lista"></div>
+                </aside>
+                <section class="chat-conversa-painel">
+                    <div id="chat-header-ativo" class="chat-header-ativo">
+                        <span>Selecione um contato para iniciar a conversa</span>
+                    </div>
+                    <div id="chat-mensagens-lista" class="chat-mensagens-lista">
+                        <p class="chat-vazio">Nenhuma conversa selecionada.</p>
+                    </div>
+                    <form id="form-enviar-mensagem" class="chat-form" hidden>
+                        <input type="text" id="chat-input-mensagem" placeholder="Digite sua mensagem..." maxlength="2000" required>
+                        <button type="submit" class="btn-primary">Enviar</button>
+                    </form>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Solicitar Upgrade -->
+    <div id="modal-upgrade" class="modal" hidden>
+        <div class="modal-content">
+            <button class="modal-fechar" data-fechar="modal-upgrade">&times;</button>
+            <h2>Solicitar Upgrade de Perfil</h2>
+            <form id="form-upgrade">
+                <div class="form-group">
+                    <label for="upgrade-tipo">Tipo Desejado</label>
+                    <select id="upgrade-tipo">
+                        <option value="Dev">Desenvolvedor (Dev)</option>
+                        <option value="Recrutador">Recrutador</option>
+                    </select>
+                </div>
+                <div id="upgrade-campos-dev">
+                    <div class="form-group">
+                        <label for="upgrade-bio">Bio</label>
+                        <textarea id="upgrade-bio" rows="2"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="upgrade-github">Link GitHub</label>
+                        <input type="url" id="upgrade-github">
+                    </div>
+                </div>
+                <div id="upgrade-campos-recrutador" hidden>
+                    <div class="form-group">
+                        <label for="upgrade-cnpj">CNPJ da Empresa</label>
+                        <input type="text" id="upgrade-cnpj">
+                    </div>
+                    <div class="form-group">
+                        <label for="upgrade-linkedin">Link LinkedIn</label>
+                        <input type="url" id="upgrade-linkedin">
+                    </div>
+                </div>
+                <p id="upgrade-erro" class="form-erro" hidden></p>
+                <button type="submit" class="btn-primary btn-bloco">Enviar Solicitação</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal do Painel Admin -->
+    <div id="modal-admin-painel" class="modal" hidden>
+        <div class="modal-content" style="max-width: 700px;">
+            <button class="modal-fechar" data-fechar="modal-admin-painel">&times;</button>
+            <h2>Painel do Administrador</h2>
+            <div class="admin-tabs">
+                <button id="btn-tab-upgrades" class="btn-primary ativo">Upgrades Pendentes</button>
+                <button id="btn-tab-projetos" class="btn-primary">Projetos Pendentes</button>
+                <button id="btn-tab-usuarios" class="btn-primary">Usuários</button>
+            </div>
+            <div id="aba-upgrades" class="admin-tab-content">
+                <div id="lista-upgrades-pendentes"></div>
+            </div>
+            <div id="aba-projetos" class="admin-tab-content" hidden>
+                <div id="lista-projetos-pendentes"></div>
+            </div>
+            <div id="aba-usuarios" class="admin-tab-content" hidden>
+                <div id="lista-usuarios-todos"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Motivo da Recusa (Administrador) -->
+    <div id="modal-recusar-motivo" class="modal" hidden style="z-index: 150;">
+        <div class="modal-content" style="max-width: 460px;">
+            <button class="modal-fechar" data-fechar="modal-recusar-motivo">&times;</button>
+            <h2 id="recusar-modal-titulo">Recusar Solicitação</h2>
+            <p id="recusar-modal-subtitulo" style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;"></p>
+            <form id="form-recusar-motivo">
+                <div class="form-group">
+                    <label for="recusar-motivo-input">Motivo da Recusa *</label>
+                    <textarea id="recusar-motivo-input" rows="4" placeholder="Descreva o motivo para o usuário..." required></textarea>
+                </div>
+                <p id="recusar-motivo-erro" class="form-erro" hidden></p>
+                <div style="display: flex; gap: 10px;">
+                    <button type="button" class="btn-deletar" id="btn-cancelar-recusa" style="flex: 1; background: #2a2a30;">Cancelar</button>
+                    <button type="submit" class="btn-deletar" style="flex: 1;">Confirmar Recusa</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Lightbox Modal para Imagens Ampliadas -->
+    <div id="lightbox-modal" class="lightbox-modal" hidden>
+        <button id="lightbox-fechar" class="lightbox-fechar">&times;</button>
+        <img id="lightbox-img" class="lightbox-content" alt="Imagem ampliada">
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/app.js"></script>
+
+    <!-- VLibras (acessibilidade em Libras) -->
+    <div vw class="enabled">
+        <div vw-access-button class="active"></div>
+        <div vw-plugin-wrapper>
+            <div class="vw-plugin-top-wrapper"></div>
+        </div>
+    </div>
+    <script src="https://vlibras.gov.br/app/vlibras-plugin.js"></script>
+    <script>
+        new window.VLibras.Widget('https://vlibras.gov.br/app');
+    </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "expo": {
+    "name": "DevBeDev",
+    "slug": "devbedev-mobile",
+    "newArchEnabled": true,
+    "plugins": [
+      "expo-video"
+    ]
+  }
+}

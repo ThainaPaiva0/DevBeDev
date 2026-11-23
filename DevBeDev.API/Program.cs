@@ -84,8 +84,8 @@ builder.Services.AddScoped<UsuarioService>();
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var secretKey = builder.Configuration["Jwt:Key"]
     ?? Environment.GetEnvironmentVariable("Jwt__Key")
-    ?? jwtSettings["SecretKey"]
-    ?? "uma-chave-secreta-muito-segura-para-desenvolvimento-123";
+    ?? builder.Configuration["JwtSettings:SecretKey"]
+    ?? "SubstituaPorUmaChaveSecretaLongaESeguraAqui123!";
 
 builder.Services.AddAuthentication(options =>
 {
@@ -158,6 +158,61 @@ using (var scope = app.Services.CreateScope())
             context.Database.ExecuteSqlRaw(
                 "UPDATE \"Usuarios\" SET \"TipoPerfil\" = 'Administrador', \"AprovadoPeloAdmin\" = TRUE, \"SolicitouUpgrade\" = FALSE WHERE \"Email\" = 'admin@devbedev.com'"
             );
+        }
+
+        if (!context.Projetos.Any())
+        {
+            var usuarioExistente = context.Usuarios.FirstOrDefault(u => u.Email == "dev@devbedev.com");
+            DevBeDev.API.Models.Dev? devDemo = usuarioExistente as DevBeDev.API.Models.Dev;
+
+            if (usuarioExistente == null)
+            {
+                devDemo = new DevBeDev.API.Models.Dev
+                {
+                    Nome = "Desenvolvedor Demo",
+                    Email = "dev@devbedev.com",
+                    SenhaHash = BCrypt.Net.BCrypt.HashPassword("dev123"),
+                    DataCadastro = DateTime.UtcNow,
+                    AprovadoPeloAdmin = true,
+                    SolicitouUpgrade = false,
+                    UpgradeRecusado = false,
+                    Bio = "Desenvolvedor Full-Stack apaixonado por .NET 10, PostgreSQL e aplicações mobile.",
+                    LinkGitHub = "https://github.com/devbedev"
+                };
+
+                context.Usuarios.Add(devDemo);
+                context.SaveChanges();
+            }
+            else if (devDemo == null)
+            {
+                context.Database.ExecuteSqlRaw(
+                    "UPDATE \"Usuarios\" SET \"TipoPerfil\" = 'Dev', \"AprovadoPeloAdmin\" = TRUE, \"SolicitouUpgrade\" = FALSE, \"UpgradeRecusado\" = FALSE, \"MotivoRecusa\" = NULL, \"Bio\" = {0}, \"LinkGitHub\" = {1} WHERE \"Id\" = {2}",
+                    "Desenvolvedor Full-Stack apaixonado por .NET 10, PostgreSQL e aplicações mobile.",
+                    "https://github.com/devbedev",
+                    usuarioExistente.Id
+                );
+                context.ChangeTracker.Clear();
+                devDemo = context.Devs.FirstOrDefault(d => d.Id == usuarioExistente.Id);
+            }
+
+            if (devDemo != null)
+            {
+                var projetoDemo = new DevBeDev.API.Models.Projeto
+                {
+                    Titulo = "DevBeDev Platform Demo",
+                    Descricao = "Projeto de demonstração inicial da plataforma DevBeDev em .NET 10, PostgreSQL e React Native.",
+                    LinkRepositorio = "https://github.com/devbedev/devbedev-platform",
+                    AprovadoPeloAdmin = true,
+                    RecusadoPeloAdmin = false,
+                    MotivoRecusa = null,
+                    DataPublicacao = DateTime.UtcNow,
+                    DevId = devDemo.Id,
+                    Tecnologias = new List<string> { ".NET 10", "C#", "PostgreSQL", "React Native" }
+                };
+
+                context.Projetos.Add(projetoDemo);
+                context.SaveChanges();
+            }
         }
     }
     catch (Exception ex)

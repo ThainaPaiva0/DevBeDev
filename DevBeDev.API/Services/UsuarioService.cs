@@ -35,7 +35,7 @@ namespace DevBeDev.API.Services
                     Nome = dto.Nome,
                     Email = dto.Email,
                     SenhaHash = senhaHash,
-                    DataCadastro = DateTime.Now,
+                    DataCadastro = DateTime.UtcNow,
                     Bio = dto.Bio ?? string.Empty,
                     LinkGitHub = dto.LinkGitHub ?? string.Empty
                 },
@@ -44,7 +44,7 @@ namespace DevBeDev.API.Services
                     Nome = dto.Nome,
                     Email = dto.Email,
                     SenhaHash = senhaHash,
-                    DataCadastro = DateTime.Now,
+                    DataCadastro = DateTime.UtcNow,
                     CnpjEmpresa = dto.CnpjEmpresa ?? string.Empty,
                     LinkLinkedIn = dto.LinkLinkedIn ?? string.Empty
                 },
@@ -53,7 +53,7 @@ namespace DevBeDev.API.Services
                     Nome = dto.Nome,
                     Email = dto.Email,
                     SenhaHash = senhaHash,
-                    DataCadastro = DateTime.Now
+                    DataCadastro = DateTime.UtcNow
                 }
             };
 
@@ -91,7 +91,6 @@ namespace DevBeDev.API.Services
 
         public static UsuarioResponseDTO ParaResponseDTO(Usuario usuario)
         {
-            // CORRIGIDO PELO GEMINI: Agora mapeia o Administrador corretamente
             string tipoPerfil = usuario switch
             {
                 Dev => "Dev",
@@ -114,11 +113,13 @@ namespace DevBeDev.API.Services
         private string GerarJwtToken(Usuario usuario)
         {
             var jwtSettings = _configuration.GetSection("JwtSettings");
-            var secretKey = jwtSettings["SecretKey"] ?? "ChavePadraoSeguraEExtremamenteLonga123456!";
+            var secretKey = _configuration["Jwt:Key"]
+                ?? Environment.GetEnvironmentVariable("Jwt__Key")
+                ?? _configuration["JwtSettings:SecretKey"]
+                ?? "SubstituaPorUmaChaveSecretaLongaESeguraAqui123!";
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-            // CORRIGIDO PELO GEMINI: Agora emite a role "Administrador" de verdade no token
             string tipoPerfil = usuario switch
             {
                 Dev => "Dev",
@@ -139,7 +140,7 @@ namespace DevBeDev.API.Services
                 issuer: jwtSettings["Issuer"] ?? "DevBeDev.API",
                 audience: jwtSettings["Audience"] ?? "DevBeDev.App",
                 claims: claims,
-                expires: DateTime.Now.AddHours(8),
+                expires: DateTime.UtcNow.AddHours(8),
                 signingCredentials: creds
             );
 

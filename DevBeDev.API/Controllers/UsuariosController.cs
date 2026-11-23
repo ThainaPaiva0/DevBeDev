@@ -3,7 +3,6 @@ using DevBeDev.API.DTOs;
 using DevBeDev.API.Models;
 using DevBeDev.API.Services;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -19,14 +18,18 @@ namespace DevBeDev.API.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly UsuarioService _usuarioService;
-        private readonly IWebHostEnvironment _environment;
+        private readonly CloudinaryService _cloudinaryService;
         private readonly IConfiguration _configuration;
 
-        public UsuariosController(ApplicationDbContext context, UsuarioService usuarioService, IWebHostEnvironment environment, IConfiguration configuration)
+        public UsuariosController(
+            ApplicationDbContext context,
+            UsuarioService usuarioService,
+            CloudinaryService cloudinaryService,
+            IConfiguration configuration)
         {
             _context = context;
             _usuarioService = usuarioService;
-            _environment = environment;
+            _cloudinaryService = cloudinaryService;
             _configuration = configuration;
         }
 
@@ -42,7 +45,7 @@ namespace DevBeDev.API.Controllers
                 Nome = dto.Nome,
                 Email = dto.Email,
                 SenhaHash = BCrypt.Net.BCrypt.HashPassword(dto.Senha),
-                DataCadastro = DateTime.Now,
+                DataCadastro = DateTime.UtcNow,
                 AprovadoPeloAdmin = true,
                 SolicitouUpgrade = false,
                 UpgradeRecusado = false,
@@ -129,7 +132,7 @@ namespace DevBeDev.API.Controllers
             string? linkLinkedInFinal = usuario.LinkLinkedIn ?? string.Empty;
 
             await _context.Database.ExecuteSqlRawAsync(
-                "UPDATE Usuarios SET TipoPerfil = {0}, SolicitouUpgrade = 0, UpgradeRecusado = 0, MotivoRecusa = NULL, AprovadoPeloAdmin = 1, Bio = {1}, LinkGitHub = {2}, CnpjEmpresa = {3}, LinkLinkedIn = {4} WHERE Id = {5}",
+                "UPDATE \"Usuarios\" SET \"TipoPerfil\" = {0}, \"SolicitouUpgrade\" = FALSE, \"UpgradeRecusado\" = FALSE, \"MotivoRecusa\" = NULL, \"AprovadoPeloAdmin\" = TRUE, \"Bio\" = {1}, \"LinkGitHub\" = {2}, \"CnpjEmpresa\" = {3}, \"LinkLinkedIn\" = {4} WHERE \"Id\" = {5}",
                 novoTipo,
                 bioFinal,
                 linkGitHubFinal,
@@ -254,20 +257,11 @@ namespace DevBeDev.API.Controllers
             var usuario = await _context.Usuarios.FindAsync(userId);
             if (usuario == null) return NotFound(new { mensagem = "Usuário não encontrado." });
 
-            var webRootPath = _environment.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-            var uploadsPasta = Path.Combine(webRootPath, "uploads");
+            var urlFoto = await _cloudinaryService.UploadImagemAsync(foto, "devbedev/perfis");
+            if (string.IsNullOrWhiteSpace(urlFoto))
+                return StatusCode(StatusCodes.Status500InternalServerError, new { mensagem = "Não foi possível obter a URL da imagem enviada ao Cloudinary." });
 
-            if (!Directory.Exists(uploadsPasta))
-                Directory.CreateDirectory(uploadsPasta);
-
-            var nomeArquivo = Guid.NewGuid().ToString() + Path.GetExtension(foto.FileName);
-            var caminhoCompleto = Path.Combine(uploadsPasta, nomeArquivo);
-            using (var stream = new FileStream(caminhoCompleto, FileMode.Create))
-            {
-                await foto.CopyToAsync(stream);
-            }
-
-            usuario.FotoPerfilUrl = $"/uploads/{nomeArquivo}";
+            usuario.FotoPerfilUrl = urlFoto;
             await _context.SaveChangesAsync();
 
             return Ok(new { fotoPerfilUrl = usuario.FotoPerfilUrl });
@@ -373,7 +367,10 @@ namespace DevBeDev.API.Controllers
         private string GerarJwtToken(Usuario usuario)
         {
             var jwtSettings = _configuration.GetSection("JwtSettings");
-            var secretKey = jwtSettings["SecretKey"] ?? "ChavePadraoSeguraEExtremamenteLonga123456!";
+            var secretKey = _configuration["Jwt:Key"]
+                ?? Environment.GetEnvironmentVariable("Jwt__Key")
+                ?? _configuration["JwtSettings:SecretKey"]
+                ?? "SubstituaPorUmaChaveSecretaLongaESeguraAqui123!";
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
@@ -397,7 +394,7 @@ namespace DevBeDev.API.Controllers
                 issuer: jwtSettings["Issuer"] ?? "DevBeDev.API",
                 audience: jwtSettings["Audience"] ?? "DevBeDev.App",
                 claims: claims,
-                expires: DateTime.Now.AddHours(8),
+                expires: DateTime.UtcNow.AddHours(8),
                 signingCredentials: creds
             );
 

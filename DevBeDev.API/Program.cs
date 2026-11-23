@@ -11,16 +11,27 @@ using NSwag.Generation.Processors.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Configurar MongoDB (DevBeDevNoSQL na porta 27017)
-var mongoConnectionString = builder.Configuration["MongoDbSettings:ConnectionString"] ?? "mongodb://localhost:27017";
+// 1. Configurar MongoDB (MongoDB Atlas / DevBeDevNoSQL)
+var mongoConnectionString = builder.Configuration["MongoDbSettings:ConnectionString"]
+    ?? Environment.GetEnvironmentVariable("MongoDbSettings__ConnectionString")
+    ?? "mongodb://localhost:27017";
+var mongoDatabaseName = builder.Configuration["MongoDbSettings:DatabaseName"]
+    ?? Environment.GetEnvironmentVariable("MongoDbSettings__DatabaseName")
+    ?? "DevBeDevNoSQL";
+
 var mongoClientSettings = MongoClientSettings.FromConnectionString(mongoConnectionString);
 mongoClientSettings.ServerSelectionTimeout = TimeSpan.FromSeconds(5);
 mongoClientSettings.ConnectTimeout = TimeSpan.FromSeconds(5);
 builder.Services.AddSingleton<IMongoClient>(new MongoClient(mongoClientSettings));
 
-// 2. Configurar SQL Server
+// 2. Configurar PostgreSQL via Npgsql
+var postgresConnectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? builder.Configuration["ConnectionStrings:DefaultConnection"]
+    ?? Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
+    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' não configurada.");
+
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(postgresConnectionString));
 
 // 3. Configurar limite de multipart/form-data para uploads Web e Mobile
 builder.Services.Configure<FormOptions>(options =>
@@ -60,6 +71,7 @@ builder.Services.AddOpenApiDocument(config =>
 });
 
 // 6. Injeção de Dependência dos Serviços
+builder.Services.AddScoped<CloudinaryService>();
 builder.Services.AddScoped<ComentarioService>();
 builder.Services.AddScoped<MensagemService>();
 builder.Services.AddScoped<ProjetoService>();
@@ -67,7 +79,10 @@ builder.Services.AddScoped<UsuarioService>();
 
 // 7. Configurar Autenticação JWT
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-var secretKey = jwtSettings["SecretKey"] ?? "uma-chave-secreta-muito-segura-para-desenvolvimento-123";
+var secretKey = builder.Configuration["Jwt:Key"]
+    ?? Environment.GetEnvironmentVariable("Jwt__Key")
+    ?? jwtSettings["SecretKey"]
+    ?? "uma-chave-secreta-muito-segura-para-desenvolvimento-123";
 
 builder.Services.AddAuthentication(options =>
 {
@@ -98,8 +113,6 @@ if (app.Environment.IsDevelopment())
 
 app.UseMiddleware<DevBeDev.API.Middlewares.ExceptionHandlingMiddleware>();
 
-// Removido app.UseHttpsRedirection() para manter compatibilidade HTTP com Expo Mobile na porta 5091
-// ESSENCIAL: Habilitar o uso da pasta wwwroot para os uploads nativos
 app.UseStaticFiles();
 app.UseCors("AllowAll");
 app.UseAuthentication();
@@ -110,7 +123,8 @@ using (var scope = app.Services.CreateScope())
 {
     try
     {
-        var context = scope.ServiceProvider.GetRequiredService<DevBeDev.API.Data.ApplicationDbContext>();
+        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        context.Database.Migrate();
 
         var adminExistente = context.Usuarios.FirstOrDefault(u => u.Email == "admin@devbedev.com");
         if (adminExistente == null)
@@ -120,7 +134,7 @@ using (var scope = app.Services.CreateScope())
                 Nome = "Administrador Master",
                 Email = "admin@devbedev.com",
                 SenhaHash = BCrypt.Net.BCrypt.HashPassword("admin123"),
-                DataCadastro = DateTime.Now,
+                DataCadastro = DateTime.UtcNow,
                 AprovadoPeloAdmin = true,
                 SolicitouUpgrade = false
             };
@@ -131,16 +145,15 @@ using (var scope = app.Services.CreateScope())
         else if (adminExistente is not DevBeDev.API.Models.Administrador)
         {
             context.Database.ExecuteSqlRaw(
-                "UPDATE Usuarios SET TipoPerfil = 'Administrador', AprovadoPeloAdmin = 1, SolicitouUpgrade = 0 WHERE Email = 'admin@devbedev.com'"
+                "UPDATE \"Usuarios\" SET \"TipoPerfil\" = 'Administrador', \"AprovadoPeloAdmin\" = TRUE, \"SolicitouUpgrade\" = FALSE WHERE \"Email\" = 'admin@devbedev.com'"
             );
         }
     }
     catch (Exception ex)
     {
-        app.Logger.LogError(ex, "Falha ao executar seed inicial no SQL Server durante a inicialização.");
+        app.Logger.LogError(ex, "Falha ao executar migrations ou seed inicial no PostgreSQL durante a inicialização.");
     }
 }
-
 
 app.Run();
 

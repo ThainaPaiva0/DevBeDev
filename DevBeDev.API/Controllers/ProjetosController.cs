@@ -1,12 +1,12 @@
+using System.Security.Claims;
+using System.Text.Json;
 using DevBeDev.API.Data;
-using DevBeDev.API.Models;
 using DevBeDev.API.DTOs;
+using DevBeDev.API.Models;
+using DevBeDev.API.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.Authorization;
-using DevBeDev.API.Services;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http.Features;
 
 namespace DevBeDev.API.Controllers
 {
@@ -16,437 +16,158 @@ namespace DevBeDev.API.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly ProjetoService _projetoService;
-        private readonly IWebHostEnvironment _environment;
+        private readonly CloudinaryService _cloudinaryService;
 
-        public ProjetosController(ApplicationDbContext context, ProjetoService projetoService, IWebHostEnvironment environment)
+        public ProjetosController(
+            ApplicationDbContext context,
+            ProjetoService projetoService,
+            CloudinaryService cloudinaryService)
         {
             _context = context;
             _projetoService = projetoService;
-            _environment = environment;
+            _cloudinaryService = cloudinaryService;
         }
 
-        // GET: api/projetos/feed (Apenas busca de texto, sem tags)
+        private int? ObterUsuarioAutenticadoId()
+        {
+            var claimValue = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? User.FindFirst("nameid")?.Value
+                ?? User.FindFirst("sub")?.Value;
+
+            if (int.TryParse(claimValue, out int userId) && userId > 0)
+                return userId;
+
+            return null;
+        }
+
+        private static string ResolverStatusProjeto(Projeto projeto)
+        {
+            if (projeto.RecusadoPeloAdmin)
+                return "Recusado";
+
+            if (projeto.AprovadoPeloAdmin)
+                return "Aprovado";
+
+            return "Pendente";
+        }
+
+        // GET: api/projetos/feed?busca=...&page=1&limit=10
         [HttpGet("feed")]
-        public async Task<IActionResult> GetFeedProjetos(
+        public async Task<IActionResult> ObterFeed(
+            [FromQuery] string? busca = null,
             [FromQuery] int page = 1,
-            [FromQuery] int limit = 10,
-            [FromQuery] string? busca = null)
+            [FromQuery] int limit = 10)
         {
             if (page < 1) page = 1;
             if (limit < 1) limit = 10;
             if (limit > 50) limit = 50;
 
             var query = _context.Projetos
+                .AsNoTracking()
                 .Include(p => p.Autor)
                 .Include(p => p.Upvotes)
                 .Where(p => p.AprovadoPeloAdmin == true && p.RecusadoPeloAdmin == false);
 
-            if (!string.IsNullOrWhiteSpace(busca))
-                query = query.Where(p => p.Titulo.Contains(busca) || p.Descricao.Contains(busca) || (p.Autor != null && p.Autor.Nome.Contains(busca)));
-
-            var totalProjetos = await query.CountAsync();
-            var totalPages = (int)Math.Ceiling(totalProjetos / (double)limit);
-
-            // Ordenação padrão unificada
-            var orderedQuery = query.OrderByDescending(p => p.Upvotes.Count).ThenByDescending(p => p.DataPublicacao);
-
-            var projetosDb = await orderedQuery
-                .Skip((page - 1) * limit)
-                .Take(limit)
-                .ToListAsync();
-
-            var projetos = projetosDb.AsEnumerable().Select(p => new
-            {
-                p.Id,
-                p.Titulo,
-                p.Descricao,
-                p.LinkRepositorio,
-                p.FotoUrl,
-                Fotos = p.Fotos,
-                p.VideoUrl,
-                p.AprovadoPeloAdmin,
-                p.RecusadoPeloAdmin,
-                p.MotivoRecusa,
-                p.DataPublicacao,
-                p.DevId, // Injetado para o Frontend avaliar exclusão
-                Autor = p.Autor != null ? p.Autor.Nome : "Anônimo",
-                AutorFotoPerfilUrl = p.Autor != null ? p.Autor.FotoPerfilUrl : null,
-                p.Tecnologias,
-                TotalVotos = p.Upvotes.Count
-            }).ToList();
-
-            return Ok(new
-            {
-                Total = totalProjetos,
-                PaginaAtual = page,
-                TotalPaginas = totalPages,
-                TamanhoPagina = limit,
-                TemProximaPagina = page < totalPages,
-                TemPaginaAnterior = page > 1,
-                Projetos = projetos
-            });
-        }
-
-        // GET: api/projetos/meus-projetos
-        [Authorize(Roles = "Dev")]
-        [HttpGet("meus-projetos")]
-        public async Task<IActionResult> GetMeusProjetos()
-        {
-            var devIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            if (!int.TryParse(devIdClaim, out int devId))
-                return Unauthorized();
-
-            var projetosDb = await _context.Projetos
-                .AsNoTracking()
-                .Include(p => p.Autor)
-                .Include(p => p.Upvotes)
-                .Where(p => p.DevId == devId)
+            var projetosDb = await query
                 .OrderByDescending(p => p.DataPublicacao)
                 .ToListAsync();
 
-            var projetos = projetosDb.AsEnumerable().Select(p => new
+            var projetosAvaliados = projetosDb.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(busca))
             {
-                p.Id,
-                p.Titulo,
-                p.Descricao,
-                p.LinkRepositorio,
-                p.FotoUrl,
-                Fotos = p.Fotos,
-                p.VideoUrl,
-                p.AprovadoPeloAdmin,
-                p.RecusadoPeloAdmin,
-                Status = p.RecusadoPeloAdmin
-                    ? "Recusado"
-                    : (p.AprovadoPeloAdmin ? "Aprovado" : "Pendente"),
-                p.MotivoRecusa,
-                p.DataPublicacao,
-                p.DevId,
-                Autor = p.Autor != null ? p.Autor.Nome : "Desenvolvedor",
-                AutorFotoPerfilUrl = p.Autor != null ? p.Autor.FotoPerfilUrl : null,
-                p.Tecnologias,
-                TotalVotos = p.Upvotes.Count,
-                TotalUpvotes = p.Upvotes.Count
-            }).ToList();
+                var termo = busca.Trim().ToLowerInvariant();
+                projetosAvaliados = projetosAvaliados.Where(p =>
+                    (!string.IsNullOrWhiteSpace(p.Titulo) && p.Titulo.ToLowerInvariant().Contains(termo)) ||
+                    (!string.IsNullOrWhiteSpace(p.Descricao) && p.Descricao.ToLowerInvariant().Contains(termo)) ||
+                    (p.Autor != null && !string.IsNullOrWhiteSpace(p.Autor.Nome) && p.Autor.Nome.ToLowerInvariant().Contains(termo)) ||
+                    (p.Tecnologias != null && p.Tecnologias.Any(t => !string.IsNullOrWhiteSpace(t) && t.ToLowerInvariant().Contains(termo)))
+                );
+            }
 
-            return Ok(projetos);
-        }
+            var listaFiltrada = projetosAvaliados.ToList();
+            var totalItens = listaFiltrada.Count;
 
-        [Authorize(Roles = "Administrador")]
-        [HttpGet("pendentes-aprovacao")]
-        public async Task<IActionResult> GetProjetosPendentesAprovacao()
-        {
-            var projetosDb = await _context.Projetos
-                .Include(p => p.Autor)
-                .Where(p => p.AprovadoPeloAdmin == false && p.RecusadoPeloAdmin == false)
-                .ToListAsync();
+            var itensPaginados = listaFiltrada
+                .Skip((page - 1) * limit)
+                .Take(limit)
+                .Select(p => new
+                {
+                    p.Id,
+                    p.Titulo,
+                    p.Descricao,
+                    p.LinkRepositorio,
+                    p.FotoUrl,
+                    Fotos = p.Fotos,
+                    p.VideoUrl,
+                    p.DataPublicacao,
+                    p.Tecnologias,
+                    p.DevId,
+                    Autor = p.Autor != null ? p.Autor.Nome : "Anônimo",
+                    AutorFotoPerfilUrl = p.Autor != null ? p.Autor.FotoPerfilUrl : null,
+                    TotalVotos = p.Upvotes.Count
+                })
+                .ToList();
 
-            var projetos = projetosDb.AsEnumerable().Select(p => new
+            return Ok(new
             {
-                p.Id,
-                p.Titulo,
-                p.Descricao,
-                p.LinkRepositorio,
-                p.FotoUrl,
-                Fotos = p.Fotos,
-                p.VideoUrl,
-                p.RecusadoPeloAdmin,
-                p.MotivoRecusa,
-                p.DataPublicacao,
-                p.DevId,
-                Autor = p.Autor != null ? p.Autor.Nome : "Desconhecido"
-            }).ToList();
-
-            return Ok(projetos);
+                page,
+                limit,
+                total = totalItens,
+                projetos = itensPaginados
+            });
         }
 
-        [Authorize(Roles = "Administrador")]
-        [HttpPost("{id:int}/aprovar-projeto")]
-        public async Task<IActionResult> AprovarProjeto(int id)
-        {
-            var projeto = await _context.Projetos.FindAsync(id);
-            if (projeto == null) return NotFound(new { mensagem = "Projeto não encontrado." });
-
-            projeto.AprovadoPeloAdmin = true;
-            projeto.RecusadoPeloAdmin = false;
-            projeto.MotivoRecusa = null;
-            await _context.SaveChangesAsync();
-
-            return Ok(new { mensagem = "Projeto aprovado com sucesso e publicado no feed!" });
-        }
-
-        [Authorize(Roles = "Administrador")]
-        [HttpPost("{id:int}/rejeitar-projeto")]
-        public async Task<IActionResult> RejeitarProjeto(int id, [FromBody] RejeitarProjetoDTO? dto)
-        {
-            var projeto = await _context.Projetos.FindAsync(id);
-            if (projeto == null) return NotFound(new { mensagem = "Projeto não encontrado." });
-
-            var motivo = dto?.Motivo?.Trim();
-            if (string.IsNullOrWhiteSpace(motivo))
-                return BadRequest(new { mensagem = "O motivo da recusa é obrigatório." });
-
-            projeto.AprovadoPeloAdmin = false;
-            projeto.RecusadoPeloAdmin = true;
-            projeto.MotivoRecusa = motivo;
-
-            await _context.SaveChangesAsync();
-
-            return Ok(new { mensagem = "Projeto recusado com sucesso.", motivoRecusa = projeto.MotivoRecusa });
-        }
-
+        // GET: api/projetos/{id:int}
         [HttpGet("{id:int}")]
-        public async Task<IActionResult> GetProjetoPorId(int id)
+        public async Task<IActionResult> ObterPorId(int id)
         {
+            if (id <= 0)
+                return BadRequest(new { mensagem = "Identificador de projeto inválido." });
+
             var projetoDb = await _context.Projetos
+                .AsNoTracking()
                 .Include(p => p.Autor)
                 .Include(p => p.Upvotes)
                 .FirstOrDefaultAsync(p => p.Id == id);
 
             if (projetoDb == null)
-                return NotFound();
+                return NotFound(new { mensagem = "Projeto não encontrado." });
 
-            var projeto = new
+            var p = new[] { projetoDb }.AsEnumerable().Select(item => new
             {
-                projetoDb.Id,
-                projetoDb.Titulo,
-                projetoDb.Descricao,
-                projetoDb.LinkRepositorio,
-                projetoDb.FotoUrl,
-                Fotos = projetoDb.Fotos,
-                projetoDb.VideoUrl,
-                projetoDb.AprovadoPeloAdmin,
-                projetoDb.RecusadoPeloAdmin,
-                projetoDb.MotivoRecusa,
-                projetoDb.DataPublicacao,
-                projetoDb.DevId,
-                AutorNome = projetoDb.Autor != null ? projetoDb.Autor.Nome : "Anônimo",
-                TotalUpvotes = projetoDb.Upvotes.Count
-            };
+                item.Id,
+                item.Titulo,
+                item.Descricao,
+                item.LinkRepositorio,
+                item.FotoUrl,
+                Fotos = item.Fotos,
+                item.VideoUrl,
+                item.AprovadoPeloAdmin,
+                item.RecusadoPeloAdmin,
+                item.MotivoRecusa,
+                Status = ResolverStatusProjeto(item),
+                item.DataPublicacao,
+                item.Tecnologias,
+                item.DevId,
+                Autor = item.Autor != null ? item.Autor.Nome : "Anônimo",
+                AutorFotoPerfilUrl = item.Autor != null ? item.Autor.FotoPerfilUrl : null,
+                TotalVotos = item.Upvotes.Count
+            }).First();
 
-            return Ok(projeto);
+            return Ok(p);
         }
 
-        // Endpoint Original preservado caso necessário por clientes antigos
-        [Authorize(Roles = "Dev")]
-        [HttpPost]
-        public async Task<IActionResult> PublicarProjeto([FromBody] ProjetoCreateDTO dto)
-        {
-            var devIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            if (!int.TryParse(devIdClaim, out int devId)) return Unauthorized();
-
-            var novoProjeto = new Projeto
-            {
-                Titulo = dto.Titulo,
-                Descricao = dto.Descricao,
-                LinkRepositorio = dto.LinkRepositorio,
-                FotoUrl = dto.FotoUrl,
-                VideoUrl = dto.VideoUrl,
-                DataPublicacao = DateTime.Now,
-                DevId = devId,
-                AprovadoPeloAdmin = false,
-                RecusadoPeloAdmin = false,
-                MotivoRecusa = null
-            };
-
-            _context.Projetos.Add(novoProjeto);
-            await _context.SaveChangesAsync();
-
-            return CreatedAtAction(nameof(GetProjetoPorId), new { id = novoProjeto.Id }, novoProjeto);
-        }
-
-        // ENDPOINT DE UPLOAD NATIVO DE ARQUIVOS FÍSICOS (Até 5 fotos e 1 vídeo - Web e Mobile)
-        [Authorize(Roles = "Dev")]
-        [HttpPost("upload-projeto")]
-        [Consumes("multipart/form-data")]
-        [RequestSizeLimit(104_857_600)] // 100 MB para vídeos/fotos mobile
-        [RequestFormLimits(MultipartBodyLengthLimit = 104_857_600, ValueCountLimit = 1024)]
-        public async Task<IActionResult> UploadProjeto([FromForm] ProjetoUploadDTO dto)
-        {
-            var devIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            if (!int.TryParse(devIdClaim, out int devId)) return Unauthorized();
-
-            if (string.IsNullOrWhiteSpace(dto.Titulo) || string.IsNullOrWhiteSpace(dto.Descricao) || string.IsNullOrWhiteSpace(dto.LinkRepositorio))
-                return BadRequest(new { mensagem = "Título, Descrição e Link do Repositório são obrigatórios." });
-
-            List<string> fotoUrls = new List<string>();
-            string? videoUrlGerada = null;
-
-            var webRootPath = _environment.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-            var uploadsPasta = Path.Combine(webRootPath, "uploads");
-
-            if (!Directory.Exists(uploadsPasta))
-                Directory.CreateDirectory(uploadsPasta);
-
-            var fotosRecebidas = new List<IFormFile>();
-            if (dto.Fotos != null && dto.Fotos.Count > 0)
-            {
-                fotosRecebidas.AddRange(dto.Fotos.Where(f => f != null && f.Length > 0));
-            }
-            if (Request.Form.Files.Count > 0)
-            {
-                foreach (var arquivo in Request.Form.Files)
-                {
-                    if (arquivo.Length > 0 &&
-                        string.Equals(arquivo.Name, "Fotos", StringComparison.OrdinalIgnoreCase) &&
-                        !fotosRecebidas.Contains(arquivo))
-                    {
-                        fotosRecebidas.Add(arquivo);
-                    }
-                }
-            }
-
-            foreach (var foto in fotosRecebidas.Take(5))
-            {
-                var extensao = Path.GetExtension(foto.FileName);
-                if (string.IsNullOrWhiteSpace(extensao))
-                    extensao = ".jpg";
-
-                var nomeArquivo = Guid.NewGuid().ToString() + extensao;
-                var caminhoCompleto = Path.Combine(uploadsPasta, nomeArquivo);
-                using (var stream = new FileStream(caminhoCompleto, FileMode.Create))
-                {
-                    await foto.CopyToAsync(stream);
-                }
-                fotoUrls.Add($"/uploads/{nomeArquivo}");
-            }
-
-            var videoRecebido = dto.Video ?? Request.Form.Files.FirstOrDefault(f =>
-                f.Length > 0 && string.Equals(f.Name, "Video", StringComparison.OrdinalIgnoreCase));
-
-            if (videoRecebido != null && videoRecebido.Length > 0)
-            {
-                var extensaoVideo = Path.GetExtension(videoRecebido.FileName);
-                if (string.IsNullOrWhiteSpace(extensaoVideo))
-                    extensaoVideo = ".mp4";
-
-                var nomeArquivo = Guid.NewGuid().ToString() + extensaoVideo;
-                var caminhoCompleto = Path.Combine(uploadsPasta, nomeArquivo);
-                using (var stream = new FileStream(caminhoCompleto, FileMode.Create))
-                {
-                    await videoRecebido.CopyToAsync(stream);
-                }
-                videoUrlGerada = $"/uploads/{nomeArquivo}";
-            }
-
-            var novoProjeto = new Projeto
-            {
-                Titulo = dto.Titulo.Trim(),
-                Descricao = dto.Descricao.Trim(),
-                LinkRepositorio = dto.LinkRepositorio.Trim(),
-                FotoUrl = fotoUrls.FirstOrDefault(),
-                VideoUrl = videoUrlGerada,
-                DataPublicacao = DateTime.Now,
-                DevId = devId,
-                AprovadoPeloAdmin = false,
-                RecusadoPeloAdmin = false,
-                MotivoRecusa = null
-            };
-            novoProjeto.Fotos = fotoUrls;
-
-            _context.Projetos.Add(novoProjeto);
-            await _context.SaveChangesAsync();
-
-            return CreatedAtAction(nameof(GetProjetoPorId), new { id = novoProjeto.Id }, new
-            {
-                novoProjeto.Id,
-                novoProjeto.Titulo,
-                novoProjeto.Descricao,
-                novoProjeto.LinkRepositorio,
-                novoProjeto.FotoUrl,
-                Fotos = novoProjeto.Fotos,
-                novoProjeto.VideoUrl,
-                novoProjeto.AprovadoPeloAdmin,
-                novoProjeto.RecusadoPeloAdmin,
-                novoProjeto.MotivoRecusa,
-                novoProjeto.DataPublicacao,
-                novoProjeto.DevId
-            });
-        }
-
-        [Authorize]
-        [HttpPost("{id:int}/upvote")]
-        public async Task<IActionResult> DarUpvote(int id)
-        {
-            var usuarioIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            if (!int.TryParse(usuarioIdClaim, out int usuarioId)) return Unauthorized();
-
-            var projeto = await _context.Projetos.FindAsync(id);
-            if (projeto == null) return NotFound(new { mensagem = "Projeto não encontrado." });
-
-            var upvote = new Upvote
-            {
-                UsuarioId = usuarioId,
-                ProjetoId = id,
-                DataUpvote = DateTime.Now
-            };
-
-            _context.Upvotes.Add(upvote);
-
-            try
-            {
-                await _context.SaveChangesAsync();
-                return Ok(new { mensagem = "Upvote computado com sucesso!" });
-            }
-            catch (DbUpdateException)
-            {
-                return BadRequest(new { mensagem = "Você já deu upvote neste projeto." });
-            }
-        }
-
-        [Authorize]
-        [HttpPut("{id:int}")]
-        public async Task<IActionResult> AtualizarProjeto(int id, [FromBody] ProjetoUpdateDto dto)
-        {
-            var userId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
-
-            var projeto = await _context.Projetos.FindAsync(id);
-
-            if (projeto == null) return NotFound(new { mensagem = "Projeto não encontrado." });
-            if (projeto.DevId != userId) return Forbid();
-
-            projeto.Titulo = dto.Titulo ?? projeto.Titulo;
-            projeto.Descricao = dto.Descricao ?? projeto.Descricao;
-            projeto.LinkRepositorio = dto.LinkRepositorio ?? projeto.LinkRepositorio;
-            projeto.FotoUrl = dto.FotoUrl ?? projeto.FotoUrl;
-            projeto.VideoUrl = dto.VideoUrl ?? projeto.VideoUrl;
-
-            _context.Projetos.Update(projeto);
-            await _context.SaveChangesAsync();
-
-            return Ok(projeto);
-        }
-
-        // REGRA APLICADA: Exclusão Mútua de Publicações (Admin + Autor)
-        [Authorize]
-        [HttpDelete("{id:int}")]
-        public async Task<IActionResult> DeletarProjeto(int id)
-        {
-            var userId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
-            var userRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
-
-            var projeto = await _context.Projetos.FindAsync(id);
-
-            if (projeto == null) return NotFound(new { mensagem = "Projeto não encontrado." });
-
-            if (projeto.DevId != userId && userRole != "Administrador")
-                return Forbid();
-
-            var upvotes = _context.Upvotes.Where(u => u.ProjetoId == id);
-            _context.Upvotes.RemoveRange(upvotes);
-
-            var favoritos = _context.Favoritos.Where(f => f.ProjetoId == id);
-            _context.Favoritos.RemoveRange(favoritos);
-
-            _context.Projetos.Remove(projeto);
-            await _context.SaveChangesAsync();
-
-            return NoContent();
-        }
-
+        // GET: api/projetos/dev/{devId:int}
         [HttpGet("dev/{devId:int}")]
-        public async Task<IActionResult> GetProjetosPorDev(int devId)
+        public async Task<IActionResult> ObterPorDev(int devId)
         {
+            if (devId <= 0)
+                return BadRequest(new { mensagem = "Identificador de desenvolvedor inválido." });
+
             var projetosDb = await _context.Projetos
+                .AsNoTracking()
+                .Include(p => p.Autor)
                 .Include(p => p.Upvotes)
                 .Where(p => p.DevId == devId && p.AprovadoPeloAdmin == true && p.RecusadoPeloAdmin == false)
                 .OrderByDescending(p => p.DataPublicacao)
@@ -464,18 +185,402 @@ namespace DevBeDev.API.Controllers
                 p.DataPublicacao,
                 p.Tecnologias,
                 p.DevId,
-                TotalUpvotes = p.Upvotes.Count
+                Autor = p.Autor != null ? p.Autor.Nome : "Anônimo",
+                AutorFotoPerfilUrl = p.Autor != null ? p.Autor.FotoPerfilUrl : null,
+                TotalVotos = p.Upvotes.Count
             }).ToList();
-
-            if (!projetos.Any())
-                return NotFound(new { mensagem = "Nenhum projeto encontrado para este desenvolvedor." });
 
             return Ok(projetos);
         }
-    }
 
-    public class RejeitarProjetoDTO
-    {
-        public string? Motivo { get; set; }
+        // GET: api/projetos/meus-projetos
+        [Authorize(Roles = "Dev")]
+        [HttpGet("meus-projetos")]
+        public async Task<IActionResult> ObterMeusProjetos()
+        {
+            var devId = ObterUsuarioAutenticadoId();
+            if (!devId.HasValue)
+                return Unauthorized(new { mensagem = "Token inválido ou expirado." });
+
+            var projetosDb = await _context.Projetos
+                .AsNoTracking()
+                .Include(p => p.Autor)
+                .Include(p => p.Upvotes)
+                .Where(p => p.DevId == devId.Value)
+                .OrderByDescending(p => p.DataPublicacao)
+                .ToListAsync();
+
+            var projetos = projetosDb.AsEnumerable().Select(p => new
+            {
+                p.Id,
+                p.Titulo,
+                p.Descricao,
+                p.LinkRepositorio,
+                p.FotoUrl,
+                Fotos = p.Fotos,
+                p.VideoUrl,
+                p.AprovadoPeloAdmin,
+                p.RecusadoPeloAdmin,
+                p.MotivoRecusa,
+                Status = ResolverStatusProjeto(p),
+                p.DataPublicacao,
+                p.Tecnologias,
+                p.DevId,
+                Autor = p.Autor != null ? p.Autor.Nome : "Anônimo",
+                AutorFotoPerfilUrl = p.Autor != null ? p.Autor.FotoPerfilUrl : null,
+                TotalVotos = p.Upvotes.Count
+            }).ToList();
+
+            return Ok(projetos);
+        }
+
+        // POST: api/projetos/upload-projeto
+        [Authorize(Roles = "Dev")]
+        [HttpPost("upload-projeto")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadProjeto([FromForm] ProjetoUploadDTO dto)
+        {
+            var devId = ObterUsuarioAutenticadoId();
+            if (!devId.HasValue)
+                return Unauthorized(new { mensagem = "Token inválido ou expirado." });
+
+            if (dto == null)
+                return BadRequest(new { mensagem = "Dados do projeto inválidos." });
+
+            var tituloLimpo = dto.Titulo?.Trim() ?? string.Empty;
+            var descricaoLimpa = dto.Descricao?.Trim() ?? string.Empty;
+            var linkLimpo = dto.LinkRepositorio?.Trim() ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(tituloLimpo) ||
+                string.IsNullOrWhiteSpace(descricaoLimpa) ||
+                string.IsNullOrWhiteSpace(linkLimpo))
+            {
+                return BadRequest(new { mensagem = "Título, descrição e link do repositório são obrigatórios." });
+            }
+
+            if (dto.Fotos != null && dto.Fotos.Count > 5)
+                return BadRequest(new { mensagem = "Você pode enviar no máximo 5 fotos por projeto." });
+
+            var urlsFotos = new List<string>();
+            if (dto.Fotos != null && dto.Fotos.Count > 0)
+            {
+                foreach (var foto in dto.Fotos.Take(5))
+                {
+                    if (foto == null || foto.Length == 0)
+                        continue;
+
+                    if (string.IsNullOrWhiteSpace(foto.ContentType) ||
+                        !foto.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return BadRequest(new { mensagem = $"O arquivo '{foto.FileName}' deve ser uma imagem válida." });
+                    }
+
+                    var urlFoto = await _cloudinaryService.UploadImagemAsync(foto, "devbedev/projetos/imagens");
+                    if (!string.IsNullOrWhiteSpace(urlFoto))
+                        urlsFotos.Add(urlFoto);
+                }
+            }
+
+            string? urlVideo = null;
+            if (dto.Video != null && dto.Video.Length > 0)
+            {
+                if (string.IsNullOrWhiteSpace(dto.Video.ContentType) ||
+                    !dto.Video.ContentType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
+                {
+                    return BadRequest(new { mensagem = $"O arquivo '{dto.Video.FileName}' deve ser um vídeo válido." });
+                }
+
+                urlVideo = await _cloudinaryService.UploadVideoAsync(dto.Video, "devbedev/projetos/videos");
+            }
+
+            var novoProjeto = new Projeto
+            {
+                Titulo = tituloLimpo,
+                Descricao = descricaoLimpa,
+                LinkRepositorio = linkLimpo,
+                FotoUrl = urlsFotos.FirstOrDefault(),
+                FotosJson = urlsFotos.Count > 0 ? JsonSerializer.Serialize(urlsFotos) : null,
+                VideoUrl = urlVideo,
+                AprovadoPeloAdmin = false,
+                RecusadoPeloAdmin = false,
+                MotivoRecusa = null,
+                DataPublicacao = DateTime.Now,
+                DevId = devId.Value,
+                Tecnologias = new List<string>()
+            };
+
+            await _projetoService.CriarAsync(novoProjeto);
+
+            return StatusCode(StatusCodes.Status201Created, new
+            {
+                mensagem = "Projeto enviado com sucesso e aguardando aprovação do Administrador.",
+                id = novoProjeto.Id,
+                titulo = novoProjeto.Titulo,
+                descricao = novoProjeto.Descricao,
+                linkRepositorio = novoProjeto.LinkRepositorio,
+                fotoUrl = novoProjeto.FotoUrl,
+                fotos = urlsFotos,
+                videoUrl = novoProjeto.VideoUrl,
+                aprovadoPeloAdmin = novoProjeto.AprovadoPeloAdmin,
+                recusadoPeloAdmin = novoProjeto.RecusadoPeloAdmin,
+                status = ResolverStatusProjeto(novoProjeto),
+                dataPublicacao = novoProjeto.DataPublicacao
+            });
+        }
+
+        // POST: api/projetos/{id:int}/upvote
+        [Authorize]
+        [HttpPost("{id:int}/upvote")]
+        public async Task<IActionResult> AlternarUpvote(int id)
+        {
+            if (id <= 0)
+                return BadRequest(new { mensagem = "Identificador de projeto inválido." });
+
+            var userId = ObterUsuarioAutenticadoId();
+            if (!userId.HasValue)
+                return Unauthorized(new { mensagem = "Token inválido ou expirado." });
+
+            var projetoExiste = await _context.Projetos.AnyAsync(p => p.Id == id);
+            if (!projetoExiste)
+                return NotFound(new { mensagem = "Projeto não encontrado." });
+
+            var upvoteExistente = await _context.Upvotes
+                .FirstOrDefaultAsync(u => u.ProjetoId == id && u.UsuarioId == userId.Value);
+
+            bool votado;
+            if (upvoteExistente != null)
+            {
+                _context.Upvotes.Remove(upvoteExistente);
+                votado = false;
+            }
+            else
+            {
+                var novoUpvote = new Upvote
+                {
+                    ProjetoId = id,
+                    UsuarioId = userId.Value,
+                    DataUpvote = DateTime.Now
+                };
+                _context.Upvotes.Add(novoUpvote);
+                votado = true;
+            }
+
+            await _context.SaveChangesAsync();
+
+            var totalVotos = await _context.Upvotes.CountAsync(u => u.ProjetoId == id);
+
+            return Ok(new
+            {
+                projetoId = id,
+                votado,
+                totalVotos
+            });
+        }
+
+        // PUT: api/projetos/{id:int}
+        [Authorize]
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> AtualizarProjeto(int id, [FromBody] ProjetoUpdateDto dto)
+        {
+            if (id <= 0)
+                return BadRequest(new { mensagem = "Identificador de projeto inválido." });
+
+            var userId = ObterUsuarioAutenticadoId();
+            if (!userId.HasValue)
+                return Unauthorized(new { mensagem = "Token inválido ou expirado." });
+
+            if (dto == null)
+                return BadRequest(new { mensagem = "Dados de atualização inválidos." });
+
+            var projeto = await _context.Projetos.FirstOrDefaultAsync(p => p.Id == id);
+            if (projeto == null)
+                return NotFound(new { mensagem = "Projeto não encontrado." });
+
+            if (projeto.DevId != userId.Value)
+                return Forbid();
+
+            if (!string.IsNullOrWhiteSpace(dto.Titulo))
+                projeto.Titulo = dto.Titulo.Trim();
+
+            if (!string.IsNullOrWhiteSpace(dto.Descricao))
+                projeto.Descricao = dto.Descricao.Trim();
+
+            if (!string.IsNullOrWhiteSpace(dto.LinkRepositorio))
+                projeto.LinkRepositorio = dto.LinkRepositorio.Trim();
+
+            if (dto.FotoUrl != null)
+            {
+                projeto.FotoUrl = string.IsNullOrWhiteSpace(dto.FotoUrl) ? null : dto.FotoUrl.Trim();
+                if (!string.IsNullOrWhiteSpace(projeto.FotoUrl) && string.IsNullOrWhiteSpace(projeto.FotosJson))
+                {
+                    projeto.FotosJson = JsonSerializer.Serialize(new List<string> { projeto.FotoUrl });
+                }
+            }
+
+            if (dto.VideoUrl != null)
+                projeto.VideoUrl = string.IsNullOrWhiteSpace(dto.VideoUrl) ? null : dto.VideoUrl.Trim();
+
+            await _projetoService.AtualizarAsync(projeto);
+
+            var totalVotos = await _context.Upvotes.CountAsync(u => u.ProjetoId == projeto.Id);
+
+            return Ok(new
+            {
+                mensagem = "Projeto atualizado com sucesso!",
+                id = projeto.Id,
+                titulo = projeto.Titulo,
+                descricao = projeto.Descricao,
+                linkRepositorio = projeto.LinkRepositorio,
+                fotoUrl = projeto.FotoUrl,
+                fotos = projeto.Fotos,
+                videoUrl = projeto.VideoUrl,
+                aprovadoPeloAdmin = projeto.AprovadoPeloAdmin,
+                recusadoPeloAdmin = projeto.RecusadoPeloAdmin,
+                motivoRecusa = projeto.MotivoRecusa,
+                status = ResolverStatusProjeto(projeto),
+                totalVotos
+            });
+        }
+
+        // DELETE: api/projetos/{id:int}
+        [Authorize]
+        [HttpDelete("{id:int}")]
+        public async Task<IActionResult> ExcluirProjeto(int id)
+        {
+            if (id <= 0)
+                return BadRequest(new { mensagem = "Identificador de projeto inválido." });
+
+            var userId = ObterUsuarioAutenticadoId();
+            if (!userId.HasValue)
+                return Unauthorized(new { mensagem = "Token inválido ou expirado." });
+
+            var projeto = await _context.Projetos.FirstOrDefaultAsync(p => p.Id == id);
+            if (projeto == null)
+                return NotFound(new { mensagem = "Projeto não encontrado." });
+
+            bool ehAutor = projeto.DevId == userId.Value;
+            bool ehAdministrador = User.IsInRole("Administrador");
+
+            if (!ehAutor && !ehAdministrador)
+                return Forbid();
+
+            var upvotesRelacionados = await _context.Upvotes
+                .Where(u => u.ProjetoId == id)
+                .ToListAsync();
+            if (upvotesRelacionados.Count > 0)
+                _context.Upvotes.RemoveRange(upvotesRelacionados);
+
+            var favoritosRelacionados = await _context.Favoritos
+                .Where(f => f.ProjetoId == id)
+                .ToListAsync();
+            if (favoritosRelacionados.Count > 0)
+                _context.Favoritos.RemoveRange(favoritosRelacionados);
+
+            _context.Projetos.Remove(projeto);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { mensagem = "Projeto excluído com sucesso!" });
+        }
+
+        // GET: api/projetos/pendentes-aprovacao
+        [Authorize(Roles = "Administrador")]
+        [HttpGet("pendentes-aprovacao")]
+        public async Task<IActionResult> ListarPendentesAprovacao()
+        {
+            var pendentesDb = await _context.Projetos
+                .AsNoTracking()
+                .Include(p => p.Autor)
+                .Where(p => p.AprovadoPeloAdmin == false && p.RecusadoPeloAdmin == false)
+                .OrderByDescending(p => p.DataPublicacao)
+                .ToListAsync();
+
+            var pendentes = pendentesDb.AsEnumerable().Select(p => new
+            {
+                p.Id,
+                p.Titulo,
+                p.Descricao,
+                p.LinkRepositorio,
+                p.FotoUrl,
+                Fotos = p.Fotos,
+                p.VideoUrl,
+                p.AprovadoPeloAdmin,
+                p.RecusadoPeloAdmin,
+                p.DataPublicacao,
+                p.Tecnologias,
+                p.DevId,
+                Autor = p.Autor != null ? p.Autor.Nome : "Anônimo",
+                AutorFotoPerfilUrl = p.Autor != null ? p.Autor.FotoPerfilUrl : null
+            }).ToList();
+
+            return Ok(pendentes);
+        }
+
+        // POST: api/projetos/{id:int}/aprovar-projeto
+        [Authorize(Roles = "Administrador")]
+        [HttpPost("{id:int}/aprovar-projeto")]
+        public async Task<IActionResult> AprovarProjeto(int id)
+        {
+            if (id <= 0)
+                return BadRequest(new { mensagem = "Identificador de projeto inválido." });
+
+            var projeto = await _context.Projetos.FirstOrDefaultAsync(p => p.Id == id);
+            if (projeto == null)
+                return NotFound(new { mensagem = "Projeto não encontrado." });
+
+            projeto.AprovadoPeloAdmin = true;
+            projeto.RecusadoPeloAdmin = false;
+            projeto.MotivoRecusa = null;
+
+            await _projetoService.AtualizarAsync(projeto);
+
+            return Ok(new
+            {
+                mensagem = "Projeto aprovado com sucesso!",
+                id = projeto.Id,
+                aprovadoPeloAdmin = projeto.AprovadoPeloAdmin,
+                recusadoPeloAdmin = projeto.RecusadoPeloAdmin,
+                motivoRecusa = projeto.MotivoRecusa,
+                status = ResolverStatusProjeto(projeto)
+            });
+        }
+
+        // POST: api/projetos/{id:int}/rejeitar-projeto
+        [Authorize(Roles = "Administrador")]
+        [HttpPost("{id:int}/rejeitar-projeto")]
+        public async Task<IActionResult> RejeitarProjeto(int id, [FromBody] RejeitarProjetoRequestDTO? dto)
+        {
+            if (id <= 0)
+                return BadRequest(new { mensagem = "Identificador de projeto inválido." });
+
+            var projeto = await _context.Projetos.FirstOrDefaultAsync(p => p.Id == id);
+            if (projeto == null)
+                return NotFound(new { mensagem = "Projeto não encontrado." });
+
+            var motivoLimpo = dto?.Motivo?.Trim();
+            if (string.IsNullOrWhiteSpace(motivoLimpo))
+                return BadRequest(new { mensagem = "O motivo da recusa é obrigatório." });
+
+            projeto.AprovadoPeloAdmin = false;
+            projeto.RecusadoPeloAdmin = true;
+            projeto.MotivoRecusa = motivoLimpo;
+
+            await _projetoService.AtualizarAsync(projeto);
+
+            return Ok(new
+            {
+                mensagem = "Projeto rejeitado com sucesso.",
+                id = projeto.Id,
+                aprovadoPeloAdmin = projeto.AprovadoPeloAdmin,
+                recusadoPeloAdmin = projeto.RecusadoPeloAdmin,
+                motivoRecusa = projeto.MotivoRecusa,
+                status = ResolverStatusProjeto(projeto)
+            });
+        }
+
+        public class RejeitarProjetoRequestDTO
+        {
+            public string? Motivo { get; set; }
+        }
     }
 }
+

@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator, Alert, Linking } from 'react-native';
 import api, { API_HOST } from '../services/api';
 
-//const API_HOST = Platform.OS === 'web' ? 'http://localhost:5091' : 'http://192.168.15.7:5091';
-
 const resolverUrl = (url) => {
-  if (!url) return null;
-  return url.startsWith('http') ? url : `${API_HOST}${url}`;
+  if (!url || typeof url !== 'string') return null;
+  const limpa = url.trim();
+  if (!limpa) return null;
+  if (/^https?:\/\//i.test(limpa)) return limpa;
+  const caminhoLimpo = limpa.startsWith('/') ? limpa : `/${limpa}`;
+  return `${API_HOST}${caminhoLimpo}`;
 };
 
 const abrirLink = (url) => {

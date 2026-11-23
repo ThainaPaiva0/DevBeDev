@@ -9,8 +9,6 @@ import {
   ActivityIndicator,
   Image,
   Linking,
-  Platform,
-  ScrollView,
   RefreshControl,
   Modal,
   TextInput,
@@ -19,15 +17,16 @@ import {
 import { VideoView, useVideoPlayer } from 'expo-video';
 import api, { API_HOST } from '../services/api';
 
-
-//const API_HOST = Platform.OS === 'web' ? 'http://localhost:5091' : 'http://192.168.15.7:5091';
-
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CAROUSEL_WIDTH = SCREEN_WIDTH - 64;
 
 const resolverUrl = (url) => {
-  if (!url) return null;
-  return url.startsWith('http') ? url : `${API_HOST}${url}`;
+  if (!url || typeof url !== 'string') return null;
+  const limpa = url.trim();
+  if (!limpa) return null;
+  if (/^https?:\/\//i.test(limpa)) return limpa;
+  const caminhoLimpo = limpa.startsWith('/') ? limpa : `/${limpa}`;
+  return `${API_HOST}${caminhoLimpo}`;
 };
 
 function VideoPlayerAdmin({ uri, style }) {
@@ -191,7 +190,7 @@ export default function AdminScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Moderação do Sistema</Text>
-      
+
       <View style={styles.tabsContainer}>
         <TouchableOpacity style={[styles.tab, activeTab === 'upgrades' && styles.tabActive]} onPress={() => setActiveTab('upgrades')}>
           <Text style={[styles.tabText, activeTab === 'upgrades' && styles.tabTextActive]}>Upgrades</Text>

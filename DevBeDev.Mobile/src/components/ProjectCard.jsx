@@ -168,8 +168,10 @@ export default function ProjectCard({
 
   const resolverUrl = (url) => {
     if (!url || typeof url !== 'string') return null;
-    if (url.startsWith('http://') || url.startsWith('https://')) return url;
-    const caminhoLimpo = url.startsWith('/') ? url : `/${url}`;
+    const limpa = url.trim();
+    if (!limpa) return null;
+    if (/^https?:\/\//i.test(limpa)) return limpa;
+    const caminhoLimpo = limpa.startsWith('/') ? limpa : `/${limpa}`;
     return `${API_HOST}${caminhoLimpo}`;
   };
 

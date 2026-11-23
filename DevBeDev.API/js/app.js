@@ -1,7 +1,10 @@
 document.addEventListener('DOMContentLoaded', () => {
     const $ = (id) => document.getElementById(id);
 
-    const API_HOST = 'http://localhost:5091';
+    const API_HOST =
+        window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+            ? 'http://localhost:5091'
+            : window.location.origin;
 
     // Avatar padrão (SVG embutido) para usuários sem foto de perfil
     const AVATAR_PADRAO = 'data:image/svg+xml;utf8,' + encodeURIComponent(
@@ -165,12 +168,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function resolverUrl(url) {
-        if (!url) return null;
-        return url.startsWith('http') ? url : `${API_HOST}${url}`;
+        if (!url || typeof url !== 'string') return null;
+        const limpa = url.trim();
+        if (!limpa) return null;
+        if (/^https?:\/\//i.test(limpa) || limpa.startsWith('data:') || limpa.startsWith('blob:')) {
+            return limpa;
+        }
+        const caminho = limpa.startsWith('/') ? limpa : `/${limpa}`;
+        return `${API_HOST}${caminho}`;
     }
 
     function fotoPerfilOuPadrao(url) {
-        return url ? resolverUrl(url) : AVATAR_PADRAO;
+        return resolverUrl(url) || AVATAR_PADRAO;
     }
 
     function urlSegura(url) {
@@ -715,7 +724,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-
     function encerrarSessao() {
         localStorage.removeItem('jwt_token');
         chatContatoAtivo = null;
@@ -1100,34 +1108,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function carregarChatInicial() {
-    if (chatListaContatos) {
-        chatListaContatos.innerHTML = '<p class="chat-vazio">Carregando contatos...</p>';
-    }
-    try {
-        const [conversas, contatos] = await Promise.all([
-            api.getConversasMensagens(),
-            api.getContatosMensagens()
-        ]);
-
-        chatConversasCache = Array.isArray(conversas) ? conversas : [];
-        chatContatosCache = Array.isArray(contatos) ? contatos : [];
-        renderizarContatosChat();
-
-        if (!chatContatoAtivo && chatConversasCache.length > 0) {
-            const primeira = chatConversasCache[0];
-            await selecionarContatoChat({
-                id: primeira.usuarioId ?? primeira.UsuarioId ?? primeira.id ?? primeira.Id,
-                nome: primeira.nome ?? primeira.Nome ?? 'Usuário',
-                tipoPerfil: primeira.tipoPerfil ?? primeira.TipoPerfil ?? ''
-            });
-        }
-    } catch (err) {
         if (chatListaContatos) {
-            chatListaContatos.innerHTML = `<p class="form-erro">${err.message || 'Erro ao carregar contatos.'}</p>`;
+            chatListaContatos.innerHTML = '<p class="chat-vazio">Carregando contatos...</p>';
+        }
+        try {
+            const [conversas, contatos] = await Promise.all([
+                api.getConversasMensagens(),
+                api.getContatosMensagens()
+            ]);
+
+            chatConversasCache = Array.isArray(conversas) ? conversas : [];
+            chatContatosCache = Array.isArray(contatos) ? contatos : [];
+            renderizarContatosChat();
+
+            if (!chatContatoAtivo && chatConversasCache.length > 0) {
+                const primeira = chatConversasCache[0];
+                await selecionarContatoChat({
+                    id: primeira.usuarioId ?? primeira.UsuarioId ?? primeira.id ?? primeira.Id,
+                    nome: primeira.nome ?? primeira.Nome ?? 'Usuário',
+                    tipoPerfil: primeira.tipoPerfil ?? primeira.TipoPerfil ?? ''
+                });
+            }
+        } catch (err) {
+            if (chatListaContatos) {
+                chatListaContatos.innerHTML = `<p class="form-erro">${err.message || 'Erro ao carregar contatos.'}</p>`;
+            }
         }
     }
-}
-
 
     if (chatBuscaContato) {
         chatBuscaContato.addEventListener('input', renderizarContatosChat);
@@ -1211,21 +1218,24 @@ document.addEventListener('DOMContentLoaded', () => {
         dotsContainer.className = 'carousel-dots';
 
         mídias.forEach((m, index) => {
+            const urlResolvida = resolverUrl(m.url);
+            if (!urlResolvida) return;
+
             const slide = document.createElement('div');
             slide.className = 'carousel-slide';
 
             if (m.tipo === 'img') {
                 const img = document.createElement('img');
-                img.src = resolverUrl(m.url);
+                img.src = urlResolvida;
                 img.alt = altTitulo;
                 img.addEventListener('click', () => {
-                    lightboxImg.src = resolverUrl(m.url);
+                    lightboxImg.src = urlResolvida;
                     abrirModal(lightboxModal);
                 });
                 slide.appendChild(img);
             } else {
                 const video = document.createElement('video');
-                video.src = resolverUrl(m.url);
+                video.src = urlResolvida;
                 video.controls = true;
                 slide.appendChild(video);
             }
@@ -1241,7 +1251,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         let currentIndex = 0;
-        const totalSlides = mídias.length;
+        const totalSlides = track.children.length;
 
         function atualizarCarrossel() {
             track.style.transform = `translateX(-${currentIndex * 100}%)`;
@@ -1446,11 +1456,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     card.appendChild(construirCarrosselElemento(fotosPendentes, p.titulo));
                 }
 
-                if (p.videoUrl) {
+                const videoResolvido = resolverUrl(p.videoUrl);
+                if (videoResolvido) {
                     const video = document.createElement('video');
                     video.className = 'post-midia';
                     video.controls = true;
-                    video.src = resolverUrl(p.videoUrl);
+                    video.src = videoResolvido;
                     card.appendChild(video);
                 }
 
@@ -1802,21 +1813,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 dotsContainer.innerHTML = '';
 
                 mídias.forEach((m, index) => {
+                    const urlResolvida = resolverUrl(m.url);
+                    if (!urlResolvida) return;
+
                     const slide = document.createElement('div');
                     slide.className = 'carousel-slide';
 
                     if (m.tipo === 'img') {
                         const img = document.createElement('img');
-                        img.src = resolverUrl(m.url);
+                        img.src = urlResolvida;
                         img.alt = projeto.titulo;
                         img.addEventListener('click', () => {
-                            lightboxImg.src = resolverUrl(m.url);
+                            lightboxImg.src = urlResolvida;
                             abrirModal(lightboxModal);
                         });
                         slide.appendChild(img);
                     } else {
                         const video = document.createElement('video');
-                        video.src = resolverUrl(m.url);
+                        video.src = urlResolvida;
                         video.controls = true;
                         slide.appendChild(video);
                     }
@@ -1832,7 +1846,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 let currentIndex = 0;
-                const totalSlides = mídias.length;
+                const totalSlides = track.children.length;
 
                 function atualizarCarrossel() {
                     track.style.transform = `translateX(-${currentIndex * 100}%)`;

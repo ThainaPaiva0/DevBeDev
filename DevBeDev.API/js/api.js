@@ -1,4 +1,9 @@
-const API_BASE_URL = "http://localhost:5091/api";
+const API_HOST =
+    window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+        ? 'http://localhost:5091'
+        : window.location.origin;
+
+const API_BASE_URL = `${API_HOST}/api`;
 
 function extrairErro(data, padrao) {
     if (data && typeof data === 'string' && data.trim()) return data.trim();
@@ -36,7 +41,7 @@ const api = {
             return data;
         } catch (err) {
             if (err.name === 'TypeError') {
-                throw new Error('Falha de rede: não foi possível conectar à API em http://localhost:5091.');
+                throw new Error(`Falha de rede: não foi possível conectar à API em ${API_HOST}.`);
             }
             throw err;
         }
